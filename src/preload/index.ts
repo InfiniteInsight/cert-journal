@@ -54,6 +54,7 @@ export interface ElectronAPI {
     clearCredentials: () => Promise<boolean>;
     getConfig: () => Promise<AppSettings | null>;
     saveConfig: (config: AppSettings) => Promise<void>;
+    getStorageMethod: () => Promise<'keychain' | 'encrypted-db' | 'unknown'>;
   };
 }
 
@@ -91,6 +92,7 @@ const api: ElectronAPI = {
     getConfig: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_CONFIG),
     saveConfig: (config) =>
       ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SAVE_CONFIG, config),
+    getStorageMethod: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_STORAGE_METHOD),
   },
 };
 

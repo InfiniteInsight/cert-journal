@@ -25,6 +25,7 @@ export const IPC_CHANNELS = {
   SETTINGS_SAVE_CONFIG: 'settings:saveConfig',
   SETTINGS_CLEAR_CREDENTIALS: 'settings:clearCredentials',
   SETTINGS_HAS_CREDENTIALS: 'settings:hasCredentials',
+  SETTINGS_GET_STORAGE_METHOD: 'settings:getStorageMethod',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

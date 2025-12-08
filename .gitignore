@@ -90,3 +90,12 @@ typings/
 
 # Electron-Forge
 out/
+
+# Playwright
+test-results/
+playwright-report/
+e2e/screenshots/
+
+# Test/debug files
+screenshot.png
+test-screenshot.png

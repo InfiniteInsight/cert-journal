@@ -5,6 +5,7 @@ import {
   getCredentials,
   clearCredentials,
   hasCredentials,
+  getStorageMethod,
 } from '../services/credentialStore';
 import { getSetting, setSetting } from '../services/database';
 import type { AppSettings, ConfluenceType } from '../../shared/types';
@@ -30,6 +31,14 @@ export function registerSettingsHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SETTINGS_CLEAR_CREDENTIALS, async (): Promise<boolean> => {
     return await clearCredentials();
   });
+
+  // Get storage method being used
+  ipcMain.handle(
+    IPC_CHANNELS.SETTINGS_GET_STORAGE_METHOD,
+    async (): Promise<'keychain' | 'encrypted-db' | 'unknown'> => {
+      return getStorageMethod();
+    }
+  );
 
   // Get app configuration (non-sensitive settings from database)
   ipcMain.handle(

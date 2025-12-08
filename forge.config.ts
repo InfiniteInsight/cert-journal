@@ -13,7 +13,9 @@ import { rendererConfig } from './webpack.renderer.config';
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    asar: {
+      unpack: '**/*.{node,dll,so,dylib}',
+    },
   },
   rebuildConfig: {},
   makers: [
@@ -41,6 +43,8 @@ const config: ForgeConfig = {
           },
         ],
       },
+      // Copy native modules to output so they can be loaded at runtime
+      packageSourceMaps: false,
     }),
     // Fuses are used to enable/disable various Electron functionality
     // at package time, before code signing the application

@@ -17,9 +17,9 @@ export const mainConfig: Configuration = {
   resolve: {
     extensions: ['.js', '.ts', '.jsx', '.tsx', '.css', '.json'],
   },
-  // Handle native modules
   externals: {
+    // Don't bundle native modules - they'll be copied by AutoUnpackNativesPlugin
+    'keytar': 'commonjs keytar',
     'better-sqlite3': 'commonjs better-sqlite3',
-    keytar: 'commonjs keytar',
   },
 };
