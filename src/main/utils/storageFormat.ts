@@ -14,6 +14,27 @@ export function escapeXml(text: string): string {
 }
 
 /**
+ * Unescape XML special characters
+ */
+export function unescapeXml(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+interface CASection {
+  caName: string;
+  heading: string;
+  rows: TableRow[];
+  startIndex: number;
+  endIndex: number;
+}
+
+/**
  * Build a table row in Confluence Storage Format (XHTML)
  */
 export function buildTableRow(row: TableRow): string {
@@ -104,4 +125,302 @@ export function formatExpirationDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+/**
+ * Parse a table row from HTML to extract data
+ */
+function parseTableRow(rowHtml: string): TableRow | null {
+  // Match table cells
+  const tdPattern = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+  const cells: string[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = tdPattern.exec(rowHtml)) !== null) {
+    cells.push(match[1]);
+  }
+
+  if (cells.length < 8) {
+    return null; // Not a valid row
+  }
+
+  // Extract SANs from <ul><li> list
+  const sans: string[] = [];
+  const sansHtml = cells[2];
+  const liPattern = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+  let sanMatch: RegExpExecArray | null;
+  while ((sanMatch = liPattern.exec(sansHtml)) !== null) {
+    const san = unescapeXml(sanMatch[1].trim());
+    if (san) {
+      sans.push(san);
+    }
+  }
+
+  return {
+    expiration: unescapeXml(cells[0].trim()),
+    cn: unescapeXml(cells[1].trim()),
+    sans,
+    issuingCA: unescapeXml(cells[3].trim()),
+    requestor: unescapeXml(cells[4].trim()),
+    location: unescapeXml(cells[5].trim()),
+    distributionGroup: unescapeXml(cells[6].trim()),
+    notes: unescapeXml(cells[7].trim()),
+  };
+}
+
+/**
+ * Parse page content to extract CA sections and their tables
+ */
+export function parseCASection(pageContent: string): CASection[] {
+  const sections: CASection[] = [];
+
+  // Find all h2 headings (CA names)
+  const headingPattern = /<h2[^>]*>([\s\S]*?)<\/h2>/gi;
+  const headings: Array<{ text: string; index: number }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = headingPattern.exec(pageContent)) !== null) {
+    headings.push({
+      text: unescapeXml(match[1].trim()),
+      index: match.index,
+    });
+  }
+
+  // For each heading, find the table that follows it
+  for (let i = 0; i < headings.length; i++) {
+    const heading = headings[i];
+    const nextHeadingIndex = i + 1 < headings.length ? headings[i + 1].index : pageContent.length;
+
+    // Extract content between this heading and the next
+    const sectionContent = pageContent.slice(heading.index, nextHeadingIndex);
+
+    // Find the table in this section
+    const tableMatch = sectionContent.match(/<table[\s\S]*?<\/table>/i);
+    if (!tableMatch) {
+      continue; // No table in this section
+    }
+
+    const tableContent = tableMatch[0];
+
+    // Extract rows from table (skip header row)
+    const rowPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    const rows: TableRow[] = [];
+    let rowMatch: RegExpExecArray | null;
+    let isFirstRow = true;
+
+    while ((rowMatch = rowPattern.exec(tableContent)) !== null) {
+      const rowHtml = rowMatch[0];
+
+      // Skip header row (contains <th> tags)
+      if (/<th[^>]*>/i.test(rowHtml)) {
+        continue;
+      }
+
+      if (isFirstRow) {
+        isFirstRow = false;
+        continue; // Skip first row if it's the header
+      }
+
+      const parsedRow = parseTableRow(rowHtml);
+      if (parsedRow) {
+        rows.push(parsedRow);
+      }
+    }
+
+    sections.push({
+      caName: heading.text,
+      heading: `<h2>${escapeXml(heading.text)}</h2>`,
+      rows,
+      startIndex: heading.index,
+      endIndex: heading.index + sectionContent.indexOf('</table>') + '</table>'.length,
+    });
+  }
+
+  return sections;
+}
+
+/**
+ * Try to parse a date from various formats
+ * Supports: YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY, YYYY/MM/DD, and ISO 8601
+ */
+function parseFlexibleDate(dateString: string): Date | null {
+  if (!dateString || typeof dateString !== 'string') {
+    return null;
+  }
+
+  const trimmed = dateString.trim();
+
+  // Try standard Date parsing first (handles ISO 8601, YYYY-MM-DD, etc.)
+  let date = new Date(trimmed);
+  if (!isNaN(date.getTime())) {
+    return date;
+  }
+
+  // Try MM/DD/YYYY (US format)
+  let match = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (match) {
+    const [, month, day, year] = match;
+    date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    if (!isNaN(date.getTime())) {
+      console.log(`Parsed non-standard date format "${trimmed}" as ${date.toISOString().split('T')[0]}`);
+      return date;
+    }
+  }
+
+  // Try DD-MM-YYYY (European format with dashes)
+  match = trimmed.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (match) {
+    const [, day, month, year] = match;
+    date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    if (!isNaN(date.getTime())) {
+      console.log(`Parsed non-standard date format "${trimmed}" as ${date.toISOString().split('T')[0]}`);
+      return date;
+    }
+  }
+
+  // Try DD/MM/YYYY (European format with slashes)
+  match = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (match) {
+    const [, day, month, year] = match;
+    // Ambiguous: could be DD/MM/YYYY or MM/DD/YYYY
+    // If day > 12, it must be DD/MM/YYYY
+    if (parseInt(day) > 12) {
+      date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      if (!isNaN(date.getTime())) {
+        console.log(`Parsed non-standard date format "${trimmed}" as ${date.toISOString().split('T')[0]} (DD/MM/YYYY)`);
+        return date;
+      }
+    }
+  }
+
+  // Try YYYY/MM/DD (alternative format)
+  match = trimmed.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if (match) {
+    const [, year, month, day] = match;
+    date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    if (!isNaN(date.getTime())) {
+      console.log(`Parsed non-standard date format "${trimmed}" as ${date.toISOString().split('T')[0]}`);
+      return date;
+    }
+  }
+
+  console.warn(`Unable to parse date: "${trimmed}" - entry will be placed at end of sorted list`);
+  return null;
+}
+
+/**
+ * Sort rows by expiration date (earliest first)
+ * Invalid or unparseable dates are placed at the end
+ */
+export function sortRowsByDate(rows: TableRow[]): TableRow[] {
+  return rows.sort((a, b) => {
+    const dateA = parseFlexibleDate(a.expiration);
+    const dateB = parseFlexibleDate(b.expiration);
+
+    // Both invalid - maintain original order
+    if (!dateA && !dateB) {
+      return 0;
+    }
+
+    // Only A is invalid - put it at the end
+    if (!dateA) {
+      return 1;
+    }
+
+    // Only B is invalid - put it at the end
+    if (!dateB) {
+      return -1;
+    }
+
+    // Both valid - sort by date (earliest first)
+    return dateA.getTime() - dateB.getTime();
+  });
+}
+
+/**
+ * Build a complete table with headers and rows for a specific CA
+ */
+export function buildCATable(caName: string, rows: TableRow[]): string {
+  const sortedRows = sortRowsByDate([...rows]);
+  const rowsHtml = sortedRows.map((row) => buildTableRow(row)).join('\n');
+
+  return `<h2>${escapeXml(caName)}</h2>
+<table>
+<tbody>
+<tr>
+<th>Expiration</th>
+<th>CN</th>
+<th>SANs</th>
+<th>Issuing CA</th>
+<th>Requestor</th>
+<th>Location</th>
+<th>Distribution Group</th>
+<th>Notes</th>
+</tr>
+${rowsHtml}
+</tbody>
+</table>`;
+}
+
+/**
+ * Add rows to page content with CA grouping and date sorting
+ * This function:
+ * 1. Parses existing CA sections
+ * 2. Adds new rows to the appropriate CA sections
+ * 3. Creates new CA sections if needed
+ * 4. Sorts rows by date within each CA section
+ * 5. Rebuilds the page content
+ */
+export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow[]): string {
+  // Parse existing CA sections
+  const sections = parseCASection(existingContent);
+
+  // Group new rows by CA
+  const newRowsByCA = new Map<string, TableRow[]>();
+  for (const row of newRows) {
+    const ca = row.issuingCA;
+    if (!newRowsByCA.has(ca)) {
+      newRowsByCA.set(ca, []);
+    }
+    newRowsByCA.get(ca)!.push(row);
+  }
+
+  // Merge new rows into existing sections or create new sections
+  const updatedSections = new Map<string, TableRow[]>();
+
+  // Add existing sections
+  for (const section of sections) {
+    updatedSections.set(section.caName, [...section.rows]);
+  }
+
+  // Add new rows to appropriate sections
+  for (const [ca, rows] of newRowsByCA.entries()) {
+    if (updatedSections.has(ca)) {
+      updatedSections.get(ca)!.push(...rows);
+    } else {
+      updatedSections.set(ca, rows);
+    }
+  }
+
+  // Build the new page content
+  const newContent: string[] = [];
+
+  // Sort CA names alphabetically
+  const sortedCANames = Array.from(updatedSections.keys()).sort();
+
+  for (const caName of sortedCANames) {
+    const rows = updatedSections.get(caName)!;
+    newContent.push(buildCATable(caName, rows));
+    newContent.push(''); // Add blank line between sections
+  }
+
+  // If there was content before the first section, preserve it
+  if (sections.length > 0 && sections[0].startIndex > 0) {
+    const preContent = existingContent.slice(0, sections[0].startIndex).trim();
+    if (preContent) {
+      return preContent + '\n\n' + newContent.join('\n');
+    }
+  }
+
+  return newContent.join('\n');
 }

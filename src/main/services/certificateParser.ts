@@ -1,4 +1,5 @@
 import forge from 'node-forge';
+import { X509Certificate } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import type { ParsedCertificate, CertificateFormat } from '../../shared/types';
@@ -73,16 +74,86 @@ function parsePEM(buffer: Buffer): forge.pki.Certificate {
     throw new Error('No certificate found in PEM file');
   }
 
-  return forge.pki.certificateFromPem(certMatch[0]);
+  try {
+    return forge.pki.certificateFromPem(certMatch[0]);
+  } catch (error) {
+    // If forge fails (e.g., unsupported key type), try using crypto module
+    // Convert to a minimal forge-compatible object using Node's crypto
+    const x509 = new X509Certificate(certMatch[0]);
+    return createCertificateFromX509(x509);
+  }
+}
+
+/**
+ * Create a forge-compatible certificate object from Node's X509Certificate
+ */
+function createCertificateFromX509(x509: X509Certificate): forge.pki.Certificate {
+  // Parse the subject and issuer
+  const subject = parseDistinguishedName(x509.subject);
+  const issuer = parseDistinguishedName(x509.issuer);
+
+  // Extract SANs
+  const sans = x509.subjectAltName
+    ? x509.subjectAltName
+        .split(', ')
+        .filter((san) => san.startsWith('DNS:') || san.startsWith('IP Address:'))
+        .map((san) => san.split(':')[1])
+    : [];
+
+  // Create a minimal forge-compatible object
+  return {
+    subject: { getField: (name: string) => subject[name] || null } as any,
+    issuer: { getField: (name: string) => issuer[name] || null } as any,
+    serialNumber: x509.serialNumber,
+    validity: {
+      notBefore: new Date(x509.validFrom),
+      notAfter: new Date(x509.validTo),
+    },
+    getExtension: (name: string) => {
+      if (name === 'subjectAltName' && sans.length > 0) {
+        return {
+          altNames: sans.map((value) => ({
+            type: value.match(/^\d+\.\d+\.\d+\.\d+$/) ? 7 : 2, // 7 for IP, 2 for DNS
+            value,
+          })),
+        };
+      }
+      return null;
+    },
+  } as any;
+}
+
+/**
+ * Parse a Distinguished Name string into a map of fields
+ */
+function parseDistinguishedName(dn: string): Record<string, { value: string }> {
+  const fields: Record<string, { value: string }> = {};
+
+  // Parse DN format: "CN=example.com, O=Example Org, ..."
+  const parts = dn.split(/,\s*/);
+  for (const part of parts) {
+    const [key, ...valueParts] = part.split('=');
+    if (key && valueParts.length > 0) {
+      fields[key.trim()] = { value: valueParts.join('=').trim() };
+    }
+  }
+
+  return fields;
 }
 
 /**
  * Parse DER-encoded certificate
  */
 function parseDER(buffer: Buffer): forge.pki.Certificate {
-  const derBuffer = forge.util.createBuffer(buffer.toString('binary'));
-  const asn1 = forge.asn1.fromDer(derBuffer);
-  return forge.pki.certificateFromAsn1(asn1);
+  try {
+    const derBuffer = forge.util.createBuffer(buffer.toString('binary'));
+    const asn1 = forge.asn1.fromDer(derBuffer);
+    return forge.pki.certificateFromAsn1(asn1);
+  } catch (error) {
+    // If forge fails, try using crypto module
+    const x509 = new X509Certificate(buffer);
+    return createCertificateFromX509(x509);
+  }
 }
 
 /**

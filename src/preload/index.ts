@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc/channels';
 import type {
   ParsedCertificate,
@@ -14,6 +14,7 @@ import type {
 
 // Define the API types for better TypeScript support in renderer
 export interface ElectronAPI {
+  getPathForFile: (file: File) => string;
   certificate: {
     parse: (
       filePaths: string[]
@@ -60,6 +61,7 @@ export interface ElectronAPI {
 
 // Expose the API to the renderer process
 const api: ElectronAPI = {
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
   certificate: {
     parse: (filePaths) =>
       ipcRenderer.invoke(IPC_CHANNELS.CERTIFICATE_PARSE, filePaths),

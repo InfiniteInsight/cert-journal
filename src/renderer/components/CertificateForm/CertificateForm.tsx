@@ -27,6 +27,7 @@ const CertificateForm: React.FC<CertificateFormProps> = ({
   const [distributionGroup, setDistributionGroup] = useState('');
   const [notes, setNotes] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | undefined>();
+  const [showPreview, setShowPreview] = useState(false);
 
   // Get the target month page
   const targetPage = getMonthPageForDate(new Date(certificate.expirationDate));
@@ -52,9 +53,12 @@ const CertificateForm: React.FC<CertificateFormProps> = ({
     }
   }, [templates]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handlePreview = (e: React.FormEvent) => {
     e.preventDefault();
+    setShowPreview(true);
+  };
 
+  const handleSubmit = () => {
     const entry: CertificateEntry = {
       ...certificate,
       requestor,
@@ -75,6 +79,84 @@ const CertificateForm: React.FC<CertificateFormProps> = ({
       day: 'numeric',
     });
   };
+
+  const formatDateISO = (date: Date) => {
+    return new Date(date).toISOString().split('T')[0];
+  };
+
+  if (showPreview) {
+    return (
+      <div className="cert-form card">
+        <div className="cert-form-header">
+          <h3>Preview: {certificate.cn}</h3>
+          <button
+            type="button"
+            className="btn-icon"
+            onClick={onRemove}
+            title="Remove certificate"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="preview-info">
+          <p className="preview-description">
+            This certificate will appear in the <strong>{targetPage}</strong> page under the{' '}
+            <strong>{certificate.issuingCA}</strong> section, sorted by expiration date:
+          </p>
+        </div>
+
+        <div className="confluence-table-preview">
+          <h3 className="ca-section-header">{certificate.issuingCA}</h3>
+          <table className="preview-table">
+            <thead>
+              <tr>
+                <th>Expiration</th>
+                <th>Common Name</th>
+                <th>SANs</th>
+                <th>Issuing CA</th>
+                <th>Requestor</th>
+                <th>Location</th>
+                <th>Distribution Group</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>{formatDateISO(certificate.expirationDate)}</td>
+                <td>{certificate.cn}</td>
+                <td>{certificate.sans.join(', ') || '-'}</td>
+                <td>{certificate.issuingCA}</td>
+                <td>{requestor || '-'}</td>
+                <td>{location || '-'}</td>
+                <td>{distributionGroup || '-'}</td>
+                <td>{notes || '-'}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div className="cert-form-actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setShowPreview(false)}
+            disabled={isSubmitting}
+          >
+            Back to Edit
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? 'Submitting...' : 'Confirm & Add to Confluence'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="cert-form card">
@@ -121,7 +203,7 @@ const CertificateForm: React.FC<CertificateFormProps> = ({
         )}
       </div>
 
-      <form onSubmit={handleSubmit} className="cert-form-fields">
+      <form onSubmit={handlePreview} className="cert-form-fields">
         <div className="form-group">
           <label className="form-label">Template</label>
           <select
@@ -195,7 +277,7 @@ const CertificateForm: React.FC<CertificateFormProps> = ({
             Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-            {isSubmitting ? 'Submitting...' : 'Add to Confluence'}
+            Preview Entry
           </button>
         </div>
       </form>

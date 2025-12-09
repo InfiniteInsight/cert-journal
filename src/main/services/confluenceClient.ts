@@ -5,7 +5,14 @@ import type {
   TableRow,
   DuplicateCheckResult,
 } from '../../shared/types';
-import { buildTableRow, buildEmptyTable, appendRowToTable, hasTable } from '../utils/storageFormat';
+import {
+  buildTableRow,
+  buildEmptyTable,
+  appendRowToTable,
+  hasTable,
+  addRowsWithCAGrouping,
+  buildCATable,
+} from '../utils/storageFormat';
 
 export class ConfluenceClient {
   private client: AxiosInstance;
@@ -130,7 +137,7 @@ export class ConfluenceClient {
   }
 
   /**
-   * Append a row to the table on a page
+   * Append a row to the table on a page with CA grouping and date sorting
    */
   async appendToTable(pageTitle: string, row: TableRow): Promise<void> {
     const page = await this.getPageByTitle(pageTitle);
@@ -141,21 +148,19 @@ export class ConfluenceClient {
 
     let newBody: string;
 
-    if (!page.body || page.body.trim() === '' || !hasTable(page.body)) {
-      // Page is empty or has no table - create one with the row
-      newBody = buildEmptyTable() + '\n' + buildTableRow(row);
-      // Actually, let's build a proper table with the row included
-      newBody = buildTableWithRow(row);
+    if (!page.body || page.body.trim() === '') {
+      // Page is empty - create a CA section with the row
+      newBody = buildCATable(row.issuingCA, [row]);
     } else {
-      // Append row to existing table
-      newBody = appendRowToTable(page.body, row);
+      // Use CA grouping and sorting
+      newBody = addRowsWithCAGrouping(page.body, [row]);
     }
 
     await this.updatePage(page.id, page.title, newBody, page.version);
   }
 
   /**
-   * Append multiple rows to the table on a page
+   * Append multiple rows to the table on a page with CA grouping and date sorting
    */
   async appendMultipleToTable(pageTitle: string, rows: TableRow[]): Promise<void> {
     const page = await this.getPageByTitle(pageTitle);
@@ -166,15 +171,27 @@ export class ConfluenceClient {
 
     let newBody: string;
 
-    if (!page.body || page.body.trim() === '' || !hasTable(page.body)) {
-      // Create table with all rows
-      newBody = buildTableWithRows(rows);
-    } else {
-      // Append all rows to existing table
-      newBody = page.body;
+    if (!page.body || page.body.trim() === '') {
+      // Page is empty - create CA sections with rows
+      // Group rows by CA first
+      const rowsByCA = new Map<string, TableRow[]>();
       for (const row of rows) {
-        newBody = appendRowToTable(newBody, row);
+        if (!rowsByCA.has(row.issuingCA)) {
+          rowsByCA.set(row.issuingCA, []);
+        }
+        rowsByCA.get(row.issuingCA)!.push(row);
       }
+
+      // Build sections for each CA
+      const sections: string[] = [];
+      const sortedCAs = Array.from(rowsByCA.keys()).sort();
+      for (const ca of sortedCAs) {
+        sections.push(buildCATable(ca, rowsByCA.get(ca)!));
+      }
+      newBody = sections.join('\n\n');
+    } else {
+      // Use CA grouping and sorting
+      newBody = addRowsWithCAGrouping(page.body, rows);
     }
 
     await this.updatePage(page.id, page.title, newBody, page.version);

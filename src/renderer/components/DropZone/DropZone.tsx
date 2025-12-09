@@ -43,7 +43,7 @@ const DropZone: React.FC<DropZoneProps> = ({ onFilesDropped, disabled = false })
           const ext = '.' + file.name.split('.').pop()?.toLowerCase();
           return validExtensions.includes(ext);
         })
-        .map((file) => file.path);
+        .map((file) => window.api.getPathForFile(file));
 
       if (filePaths.length > 0) {
         onFilesDropped(filePaths);
@@ -63,7 +63,7 @@ const DropZone: React.FC<DropZoneProps> = ({ onFilesDropped, disabled = false })
       const files = e.target.files;
       if (!files) return;
 
-      const filePaths = Array.from(files).map((file) => file.path);
+      const filePaths = Array.from(files).map((file) => window.api.getPathForFile(file));
       if (filePaths.length > 0) {
         onFilesDropped(filePaths);
       }
