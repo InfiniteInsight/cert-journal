@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '../../shared/ipc/channels';
 import { ConfluenceClient } from '../services/confluenceClient';
 import { getFullConfig } from './settingsHandlers';
 import { recordSubmission } from '../services/database';
+import { getCredentials } from '../services/credentialStore';
 import type { TableRow, DuplicateCheckResult, ConfluenceConfig } from '../../shared/types';
 
 // Cache the client to avoid recreating it for every request
@@ -61,6 +62,24 @@ export function registerConfluenceHandlers(): void {
       });
 
       try {
+        let tokenToUse = config.token;
+
+        // If no token provided in config, try to get stored credentials
+        if (!tokenToUse) {
+          console.log('No token provided, attempting to retrieve stored credentials...');
+          const credentials = await getCredentials();
+          if (credentials) {
+            tokenToUse = credentials.token;
+            console.log('Using stored credentials');
+          } else {
+            console.log('No stored credentials found');
+            return {
+              success: false,
+              error: 'No token provided and no stored credentials found',
+            };
+          }
+        }
+
         const client = new ConfluenceClient(
           {
             baseUrl: config.baseUrl,
@@ -68,7 +87,7 @@ export function registerConfluenceHandlers(): void {
             spaceKey: config.spaceKey,
             username: config.username,
           },
-          { username: config.username, token: config.token }
+          { username: config.username, token: tokenToUse }
         );
 
         console.log('Testing connection...');
