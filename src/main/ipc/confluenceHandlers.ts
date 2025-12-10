@@ -51,6 +51,15 @@ export function registerConfluenceHandlers(): void {
       _event,
       config: ConfluenceConfig & { token: string }
     ): Promise<{ success: boolean; error?: string }> => {
+      console.log('=== MAIN PROCESS: Test connection handler called ===');
+      console.log('Config received:', {
+        baseUrl: config.baseUrl,
+        type: config.type,
+        spaceKey: config.spaceKey,
+        username: config.username,
+        hasToken: !!config.token,
+      });
+
       try {
         const client = new ConfluenceClient(
           {
@@ -62,8 +71,12 @@ export function registerConfluenceHandlers(): void {
           { username: config.username, token: config.token }
         );
 
-        return await client.testConnection();
+        console.log('Testing connection...');
+        const result = await client.testConnection();
+        console.log('Test connection result:', result);
+        return result;
       } catch (error) {
+        console.error('Test connection error in handler:', error);
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error',

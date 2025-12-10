@@ -41,10 +41,14 @@ const SettingsPage: React.FC = () => {
   }, []);
 
   const handleTestConnection = async () => {
+    console.log('=== TEST CONNECTION CLICKED ===');
+    console.log('Config:', { baseUrl, type: confluenceType, spaceKey, username, hasToken: !!token });
+
     setIsTesting(true);
     setTestResult(null);
 
     try {
+      console.log('Calling testConnection API...');
       const result = await window.api.confluence.testConnection({
         baseUrl,
         type: confluenceType,
@@ -53,8 +57,10 @@ const SettingsPage: React.FC = () => {
         token: token || '', // Use new token if provided, otherwise test will fail if no stored creds
       });
 
+      console.log('Test result:', result);
       setTestResult(result);
     } catch (error) {
+      console.error('Test connection error:', error);
       setTestResult({
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
