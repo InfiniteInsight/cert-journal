@@ -33,17 +33,31 @@ export class ConfluenceClient {
     // For Server/DC, it's typically /rest/api
     const apiPath = this.isCloud ? '/wiki/rest/api' : '/rest/api';
 
-    this.client = axios.create({
+    // Authentication differs between Cloud and Server:
+    // - Cloud uses Basic Auth with email + API token
+    // - Server/DC uses Bearer token (Personal Access Token)
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+
+    const axiosConfig: any = {
       baseURL: `${baseUrl}${apiPath}`,
-      auth: {
+      headers,
+    };
+
+    if (this.isCloud) {
+      // Cloud: Use Basic Authentication with username (email) and API token
+      axiosConfig.auth = {
         username: credentials.username,
         password: credentials.token,
-      },
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-    });
+      };
+    } else {
+      // Server/DC: Use Bearer token (Personal Access Token)
+      headers.Authorization = `Bearer ${credentials.token}`;
+    }
+
+    this.client = axios.create(axiosConfig);
   }
 
   /**
