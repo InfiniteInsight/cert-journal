@@ -51,11 +51,23 @@ export class ConfluenceClient {
    */
   async testConnection(): Promise<{ success: boolean; error?: string }> {
     try {
+      const url = `/space/${this.spaceKey}`;
+      console.log('Testing connection to:', this.client.defaults.baseURL + url);
+      console.log('Using credentials for user:', this.client.defaults.auth?.username);
+
       // Try to get the space to verify connection
-      await this.client.get(`/space/${this.spaceKey}`);
+      await this.client.get(url);
+      console.log('Connection test successful!');
       return { success: true };
     } catch (error) {
       const axiosError = error as AxiosError;
+      console.error('Connection test failed:', {
+        status: axiosError.response?.status,
+        statusText: axiosError.response?.statusText,
+        data: axiosError.response?.data,
+        message: axiosError.message,
+      });
+
       if (axiosError.response) {
         switch (axiosError.response.status) {
           case 401:
