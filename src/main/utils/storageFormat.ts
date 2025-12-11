@@ -372,8 +372,16 @@ ${rowsHtml}
  * 5. Rebuilds ONLY the CA sections, preserving all other content
  */
 export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow[]): string {
+  console.log('=== addRowsWithCAGrouping called ===');
+  console.log('Existing content length:', existingContent.length);
+  console.log('New rows to add:', newRows.length);
+
   // Parse existing CA sections
   const sections = parseCASection(existingContent);
+  console.log('Parsed CA sections:', sections.length);
+  sections.forEach((s, i) => {
+    console.log(`  Section ${i}: ${s.caName} (rows: ${s.rows.length}, pos: ${s.startIndex}-${s.endIndex})`);
+  });
 
   // Group new rows by CA
   const newRowsByCA = new Map<string, TableRow[]>();
@@ -387,6 +395,7 @@ export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow
 
   // If no existing CA sections, append to the end of the page
   if (sections.length === 0) {
+    console.log('No existing CA sections found - appending to end');
     const newCASections: string[] = [];
     const sortedCANames = Array.from(newRowsByCA.keys()).sort();
 
@@ -434,18 +443,26 @@ export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow
     .filter(s => s.startIndex >= 0) // Only existing sections (not new ones)
     .sort((a, b) => a.startIndex - b.startIndex);
 
+  console.log('Replacing', sortedSections.length, 'existing CA sections in place');
+
   // Replace each existing section with its updated version
   for (const section of sortedSections) {
     const oldSectionLength = section.endIndex - section.startIndex;
     const newSectionContent = buildCATable(section.caName, section.rows);
 
+    console.log(`  Replacing ${section.caName}: old=${oldSectionLength} chars, new=${newSectionContent.length} chars`);
+    console.log(`    Position: ${section.startIndex + offset} to ${section.endIndex + offset}`);
+
     const beforeSection = result.slice(0, section.startIndex + offset);
     const afterSection = result.slice(section.endIndex + offset);
+
+    console.log(`    Before length: ${beforeSection.length}, After length: ${afterSection.length}`);
 
     result = beforeSection + newSectionContent + afterSection;
 
     // Update offset for subsequent replacements
     offset += newSectionContent.length - oldSectionLength;
+    console.log(`    New offset: ${offset}`);
   }
 
   // Append any new CA sections at the end
@@ -454,9 +471,12 @@ export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow
     .sort((a, b) => a.caName.localeCompare(b.caName));
 
   if (newSections.length > 0) {
+    console.log('Appending', newSections.length, 'new CA sections at end');
     const newCASections = newSections.map(s => buildCATable(s.caName, s.rows));
     result = result.trim() + '\n\n' + newCASections.join('\n\n');
   }
 
+  console.log('Final result length:', result.length);
+  console.log('=== addRowsWithCAGrouping complete ===');
   return result;
 }
