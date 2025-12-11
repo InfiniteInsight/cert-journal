@@ -369,7 +369,7 @@ ${rowsHtml}
  * 2. Adds new rows to the appropriate CA sections
  * 3. Creates new CA sections if needed
  * 4. Sorts rows by date within each CA section
- * 5. Rebuilds the page content while preserving non-CA content
+ * 5. Rebuilds ONLY the CA sections, preserving all other content
  */
 export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow[]): string {
   // Parse existing CA sections
@@ -385,50 +385,78 @@ export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow
     newRowsByCA.get(ca)!.push(row);
   }
 
-  // Merge new rows into existing sections or create new sections
-  const updatedSections = new Map<string, TableRow[]>();
-
-  // Add existing sections
-  for (const section of sections) {
-    updatedSections.set(section.caName, [...section.rows]);
-  }
-
-  // Add new rows to appropriate sections
-  for (const [ca, rows] of newRowsByCA.entries()) {
-    if (updatedSections.has(ca)) {
-      updatedSections.get(ca)!.push(...rows);
-    } else {
-      updatedSections.set(ca, rows);
-    }
-  }
-
-  // Build the new CA sections content
-  const caSectionsContent: string[] = [];
-
-  // Sort CA names alphabetically
-  const sortedCANames = Array.from(updatedSections.keys()).sort();
-
-  for (const caName of sortedCANames) {
-    const rows = updatedSections.get(caName)!;
-    caSectionsContent.push(buildCATable(caName, rows));
-  }
-
-  const newCASections = caSectionsContent.join('\n\n');
-
   // If no existing CA sections, append to the end of the page
   if (sections.length === 0) {
-    if (existingContent.trim()) {
-      return existingContent.trim() + '\n\n' + newCASections;
+    const newCASections: string[] = [];
+    const sortedCANames = Array.from(newRowsByCA.keys()).sort();
+
+    for (const caName of sortedCANames) {
+      const rows = newRowsByCA.get(caName)!;
+      newCASections.push(buildCATable(caName, rows));
     }
-    return newCASections;
+
+    if (existingContent.trim()) {
+      return existingContent.trim() + '\n\n' + newCASections.join('\n\n');
+    }
+    return newCASections.join('\n\n');
   }
 
-  // Preserve content before, between, and after CA sections
-  const firstSection = sections[0];
-  const lastSection = sections[sections.length - 1];
+  // Build a map of existing CA sections by name
+  const existingSections = new Map<string, CASection>();
+  for (const section of sections) {
+    existingSections.set(section.caName, section);
+  }
 
-  const contentBefore = existingContent.slice(0, firstSection.startIndex);
-  const contentAfter = existingContent.slice(lastSection.endIndex);
+  // Update existing sections with new rows
+  for (const [ca, rows] of newRowsByCA.entries()) {
+    if (existingSections.has(ca)) {
+      // Add to existing section
+      const section = existingSections.get(ca)!;
+      section.rows.push(...rows);
+    } else {
+      // Create new section (will be appended at the end)
+      existingSections.set(ca, {
+        caName: ca,
+        heading: `<h2>${escapeXml(ca)}</h2>`,
+        rows: rows,
+        startIndex: -1, // Mark as new
+        endIndex: -1,
+      });
+    }
+  }
 
-  return contentBefore + newCASections + '\n\n' + contentAfter;
+  // Rebuild the page by replacing each CA section in place
+  let result = existingContent;
+  let offset = 0;
+
+  // Sort sections by their position in the original content
+  const sortedSections = Array.from(existingSections.values())
+    .filter(s => s.startIndex >= 0) // Only existing sections (not new ones)
+    .sort((a, b) => a.startIndex - b.startIndex);
+
+  // Replace each existing section with its updated version
+  for (const section of sortedSections) {
+    const oldSectionLength = section.endIndex - section.startIndex;
+    const newSectionContent = buildCATable(section.caName, section.rows);
+
+    const beforeSection = result.slice(0, section.startIndex + offset);
+    const afterSection = result.slice(section.endIndex + offset);
+
+    result = beforeSection + newSectionContent + afterSection;
+
+    // Update offset for subsequent replacements
+    offset += newSectionContent.length - oldSectionLength;
+  }
+
+  // Append any new CA sections at the end
+  const newSections = Array.from(existingSections.values())
+    .filter(s => s.startIndex === -1)
+    .sort((a, b) => a.caName.localeCompare(b.caName));
+
+  if (newSections.length > 0) {
+    const newCASections = newSections.map(s => buildCATable(s.caName, s.rows));
+    result = result.trim() + '\n\n' + newCASections.join('\n\n');
+  }
+
+  return result;
 }
