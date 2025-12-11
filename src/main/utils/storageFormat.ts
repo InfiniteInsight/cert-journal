@@ -509,44 +509,62 @@ export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow
       markerSection.contentEndIndex + offset
     );
 
-    // Parse existing CA subsections within this marker section
-    const caSections = parseCASection(sectionContent);
-    console.log(`  Found ${caSections.length} existing CA subsections`);
+    // Within each marker section, there should be ONE heading and ONE table
+    // The heading is a category name (e.g., "Public Server Certificates - Sectigo")
+    // The table contains ALL certificates for that category
 
-    // Group existing rows by CA and preserve heading levels
-    const rowsByCA = new Map<string, TableRow[]>();
-    const headingLevelByCA = new Map<string, number>();
-    for (const caSection of caSections) {
-      rowsByCA.set(caSection.caName, [...caSection.rows]);
-      headingLevelByCA.set(caSection.caName, caSection.headingLevel);
+    // Find the heading (h1-h6)
+    const headingPattern = /<(h[1-6])[^>]*>([\s\S]*?)<\/\1>/i;
+    const headingMatch = sectionContent.match(headingPattern);
+
+    let existingHeading = '';
+    let existingRows: TableRow[] = [];
+
+    if (headingMatch) {
+      existingHeading = headingMatch[0]; // Preserve the exact heading HTML
+      console.log(`  Found existing heading: ${headingMatch[2].trim()}`);
     }
 
-    // Determine default heading level for new CAs (use most common, or h3)
-    const defaultHeadingLevel = caSections.length > 0
-      ? caSections.map(s => s.headingLevel)
-          .sort((a, b) =>
-            caSections.filter(s => s.headingLevel === b).length -
-            caSections.filter(s => s.headingLevel === a).length
-          )[0]
-      : 3;
+    // Find the table
+    const tableMatch = sectionContent.match(/<table[\s\S]*?<\/table>/i);
+    if (tableMatch) {
+      const tableContent = tableMatch[0];
 
-    // Add new rows to appropriate CAs
-    for (const row of newRowsForSection) {
-      const ca = row.issuingCA;
-      if (!rowsByCA.has(ca)) {
-        rowsByCA.set(ca, []);
-        headingLevelByCA.set(ca, defaultHeadingLevel); // Use default for new CAs
+      // Parse all existing rows from the table
+      const rowPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+      let rowMatch: RegExpExecArray | null;
+
+      while ((rowMatch = rowPattern.exec(tableContent)) !== null) {
+        const rowHtml = rowMatch[0];
+
+        // Skip header row (contains <th> tags)
+        if (/<th[^>]*>/i.test(rowHtml)) {
+          continue;
+        }
+
+        const parsedRow = parseTableRow(rowHtml);
+        if (parsedRow) {
+          existingRows.push(parsedRow);
+        }
       }
-      rowsByCA.get(ca)!.push(row);
+
+      console.log(`  Found ${existingRows.length} existing rows in table`);
     }
 
-    // Build new content for this marker section
-    const sortedCAs = Array.from(rowsByCA.keys()).sort();
-    const caTablesHtml = sortedCAs
-      .map(ca => buildCATable(ca, rowsByCA.get(ca)!, headingLevelByCA.get(ca)!))
-      .join('\n\n');
+    // Combine existing rows with new rows
+    const allRows = [...existingRows, ...newRowsForSection];
+    console.log(`  Total rows after adding new: ${allRows.length}`);
 
-    const newSectionContent = `\n${caTablesHtml}\n`;
+    // Sort all rows by expiration date
+    const sortedRows = sortRowsByDate(allRows);
+
+    // Build the table with all rows
+    const rowsHtml = sortedRows.map(row => buildTableRow(row)).join('\n');
+
+    // Build new section content with the original heading and updated table
+    const newSectionContent = existingHeading
+      ? `\n${existingHeading}\n<table>\n<tbody>\n<tr>\n<th>Expiration</th>\n<th>CN</th>\n<th>SANs</th>\n<th>Issuing CA</th>\n<th>Requestor</th>\n<th>Location</th>\n<th>Distribution Group</th>\n<th>Notes</th>\n</tr>\n${rowsHtml}\n</tbody>\n</table>\n`
+      : `\n<table>\n<tbody>\n<tr>\n<th>Expiration</th>\n<th>CN</th>\n<th>SANs</th>\n<th>Issuing CA</th>\n<th>Requestor</th>\n<th>Location</th>\n<th>Distribution Group</th>\n<th>Notes</th>\n</tr>\n${rowsHtml}\n</tbody>\n</table>\n`;
 
     // Calculate the old section content length
     const oldSectionLength = markerSection.contentEndIndex - markerSection.contentStartIndex;
