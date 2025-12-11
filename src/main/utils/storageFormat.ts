@@ -417,19 +417,26 @@ interface MarkerSection {
 function findMarkerSections(content: string): MarkerSection[] {
   const sections: MarkerSection[] = [];
 
-  // Look for comment markers in format: <!-- NAME-START --> ... <!-- NAME-END -->
-  const markerPattern = /<!--\s*([A-Z0-9-]+)-START\s*-->/gi;
+  // Look for comment markers in format: <!-- NAME-START --> or <!-- <p>NAME-START</p> -->
+  // Confluence may wrap the comment content in <p> tags when using the htmlcomment macro
+  const markerPattern = /<!--\s*(?:<p>)?\s*([A-Z0-9-]+)-START\s*(?:<\/p>)?\s*-->/gi;
   let match: RegExpExecArray | null;
 
   while ((match = markerPattern.exec(content)) !== null) {
     const markerName = match[1];
     const startMarker = match[0];
-    const endMarker = `<!-- ${markerName}-END -->`;
-    const startIndex = match.index;
-    const contentStartIndex = startIndex + startMarker.length;
+    // Try both formats for the end marker
+    let endMarker = `<!-- ${markerName}-END -->`;
+    let endIndex = content.indexOf(endMarker, match.index + startMarker.length);
 
-    // Find the corresponding end marker
-    const endIndex = content.indexOf(endMarker, contentStartIndex);
+    // If not found, try with <p> tags
+    if (endIndex === -1) {
+      endMarker = `<!-- <p>${markerName}-END</p> -->`;
+      endIndex = content.indexOf(endMarker, match.index + startMarker.length);
+    }
+
+    const contentStartIndex = match.index + startMarker.length;
+
     if (endIndex === -1) {
       console.warn(`No end marker found for ${markerName}`);
       continue;
@@ -439,7 +446,7 @@ function findMarkerSections(content: string): MarkerSection[] {
       markerName,
       startMarker,
       endMarker,
-      startIndex,
+      startIndex: match.index,
       endIndex: endIndex + endMarker.length,
       contentStartIndex,
       contentEndIndex: endIndex,
