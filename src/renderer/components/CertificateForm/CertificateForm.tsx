@@ -118,9 +118,17 @@ const CertificateForm: React.FC<CertificateFormProps> = ({
     const rowHtml = buildTableRowHtml();
 
     try {
-      await navigator.clipboard.writeText(rowHtml);
-      // You could add a toast notification here if you want
-      console.log('Entry copied to clipboard');
+      // Copy as rich HTML so it can be pasted as a rendered table
+      const htmlBlob = new Blob([rowHtml], { type: 'text/html' });
+      const textBlob = new Blob([rowHtml], { type: 'text/plain' });
+
+      const clipboardItem = new ClipboardItem({
+        'text/html': htmlBlob,
+        'text/plain': textBlob,
+      });
+
+      await navigator.clipboard.write([clipboardItem]);
+      console.log('Entry copied to clipboard as HTML');
     } catch (err) {
       console.error('Failed to copy entry:', err);
       alert('Failed to copy entry to clipboard');
