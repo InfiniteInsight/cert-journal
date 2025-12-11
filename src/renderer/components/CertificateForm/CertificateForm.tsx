@@ -84,6 +84,49 @@ const CertificateForm: React.FC<CertificateFormProps> = ({
     return new Date(date).toISOString().split('T')[0];
   };
 
+  const escapeXml = (text: string): string => {
+    if (!text) return '';
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  };
+
+  const buildTableRowHtml = (): string => {
+    // Build SANs list
+    const sansList =
+      certificate.sans.length > 0
+        ? `<ul>${certificate.sans.map((san) => `<li>${escapeXml(san)}</li>`).join('')}</ul>`
+        : '';
+
+    // Build the table row
+    return `<tr>
+<td>${escapeXml(formatDateISO(certificate.expirationDate))}</td>
+<td>${escapeXml(certificate.cn)}</td>
+<td>${sansList}</td>
+<td>${escapeXml(certificate.issuingCA)}</td>
+<td>${escapeXml(requestor || '')}</td>
+<td>${escapeXml(location || '')}</td>
+<td>${escapeXml(distributionGroup || '')}</td>
+<td>${escapeXml(notes || '')}</td>
+</tr>`;
+  };
+
+  const handleCopyEntry = async () => {
+    const rowHtml = buildTableRowHtml();
+
+    try {
+      await navigator.clipboard.writeText(rowHtml);
+      // You could add a toast notification here if you want
+      console.log('Entry copied to clipboard');
+    } catch (err) {
+      console.error('Failed to copy entry:', err);
+      alert('Failed to copy entry to clipboard');
+    }
+  };
+
   if (showPreview) {
     return (
       <div className="cert-form card">
@@ -144,6 +187,15 @@ const CertificateForm: React.FC<CertificateFormProps> = ({
             disabled={isSubmitting}
           >
             Back to Edit
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleCopyEntry}
+            disabled={isSubmitting}
+            title="Copy table row HTML to clipboard"
+          >
+            Copy Entry
           </button>
           <button
             type="button"
