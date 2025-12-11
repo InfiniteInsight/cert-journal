@@ -29,6 +29,7 @@ export function unescapeXml(text: string): string {
 interface CASection {
   caName: string;
   heading: string;
+  headingLevel: number; // 1-6 for h1-h6
   rows: TableRow[];
   startIndex: number;
   endIndex: number;
@@ -170,19 +171,22 @@ function parseTableRow(rowHtml: string): TableRow | null {
 
 /**
  * Parse page content to extract CA sections and their tables
+ * Detects ANY heading level (h1-h6), not just h2
  */
 export function parseCASection(pageContent: string): CASection[] {
   const sections: CASection[] = [];
 
-  // Find all h2 headings (CA names)
-  const headingPattern = /<h2[^>]*>([\s\S]*?)<\/h2>/gi;
-  const headings: Array<{ text: string; index: number }> = [];
+  // Find all headings (h1-h6) - using backreference to match closing tag
+  const headingPattern = /<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi;
+  const headings: Array<{ text: string; level: number; index: number; fullMatch: string }> = [];
   let match: RegExpExecArray | null;
 
   while ((match = headingPattern.exec(pageContent)) !== null) {
     headings.push({
-      text: unescapeXml(match[1].trim()),
+      text: unescapeXml(match[2].trim()),
+      level: parseInt(match[1]),
       index: match.index,
+      fullMatch: match[0],
     });
   }
 
@@ -229,7 +233,8 @@ export function parseCASection(pageContent: string): CASection[] {
 
     sections.push({
       caName: heading.text,
-      heading: `<h2>${escapeXml(heading.text)}</h2>`,
+      heading: heading.fullMatch,
+      headingLevel: heading.level,
       rows,
       startIndex: heading.index,
       endIndex: heading.index + sectionContent.indexOf('</table>') + '</table>'.length,
@@ -339,12 +344,15 @@ export function sortRowsByDate(rows: TableRow[]): TableRow[] {
 
 /**
  * Build a complete table with headers and rows for a specific CA
+ * @param caName The name of the CA for the heading
+ * @param rows The rows to include in the table
+ * @param headingLevel The heading level to use (1-6 for h1-h6), defaults to 3
  */
-export function buildCATable(caName: string, rows: TableRow[]): string {
+export function buildCATable(caName: string, rows: TableRow[], headingLevel: number = 3): string {
   const sortedRows = sortRowsByDate([...rows]);
   const rowsHtml = sortedRows.map((row) => buildTableRow(row)).join('\n');
 
-  return `<h2>${escapeXml(caName)}</h2>
+  return `<h${headingLevel}>${escapeXml(caName)}</h${headingLevel}>
 <table>
 <tbody>
 <tr>
@@ -505,17 +513,29 @@ export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow
     const caSections = parseCASection(sectionContent);
     console.log(`  Found ${caSections.length} existing CA subsections`);
 
-    // Group existing rows by CA
+    // Group existing rows by CA and preserve heading levels
     const rowsByCA = new Map<string, TableRow[]>();
+    const headingLevelByCA = new Map<string, number>();
     for (const caSection of caSections) {
       rowsByCA.set(caSection.caName, [...caSection.rows]);
+      headingLevelByCA.set(caSection.caName, caSection.headingLevel);
     }
+
+    // Determine default heading level for new CAs (use most common, or h3)
+    const defaultHeadingLevel = caSections.length > 0
+      ? caSections.map(s => s.headingLevel)
+          .sort((a, b) =>
+            caSections.filter(s => s.headingLevel === b).length -
+            caSections.filter(s => s.headingLevel === a).length
+          )[0]
+      : 3;
 
     // Add new rows to appropriate CAs
     for (const row of newRowsForSection) {
       const ca = row.issuingCA;
       if (!rowsByCA.has(ca)) {
         rowsByCA.set(ca, []);
+        headingLevelByCA.set(ca, defaultHeadingLevel); // Use default for new CAs
       }
       rowsByCA.get(ca)!.push(row);
     }
@@ -523,7 +543,7 @@ export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow
     // Build new content for this marker section
     const sortedCAs = Array.from(rowsByCA.keys()).sort();
     const caTablesHtml = sortedCAs
-      .map(ca => buildCATable(ca, rowsByCA.get(ca)!))
+      .map(ca => buildCATable(ca, rowsByCA.get(ca)!, headingLevelByCA.get(ca)!))
       .join('\n\n');
 
     const newSectionContent = `\n${caTablesHtml}\n`;
@@ -549,9 +569,11 @@ export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow
 
 /**
  * Fallback function for pages without HTML markers
- * Appends CA sections at the end of the page
+ * CRITICAL: This function NEVER overwrites existing content, it only appends or inserts
  */
 function addRowsWithoutMarkers(existingContent: string, newRows: TableRow[]): string {
+  console.log('=== addRowsWithoutMarkers called ===');
+
   // Group new rows by CA
   const newRowsByCA = new Map<string, TableRow[]>();
   for (const row of newRows) {
@@ -562,46 +584,62 @@ function addRowsWithoutMarkers(existingContent: string, newRows: TableRow[]): st
     newRowsByCA.get(ca)!.push(row);
   }
 
-  // Parse existing CA sections (if any)
+  // Parse existing CA sections (if any) - now finds h1-h6, not just h2
   const sections = parseCASection(existingContent);
+  console.log(`Found ${sections.length} existing CA sections with headings`);
 
   if (sections.length === 0) {
-    // No existing sections - create new ones at end
+    // NO HEADINGS FOUND - APPEND new sections at end, never overwrite
+    console.log('No headings found - appending new sections at end');
     const newCASections: string[] = [];
     const sortedCANames = Array.from(newRowsByCA.keys()).sort();
 
     for (const caName of sortedCANames) {
       const rows = newRowsByCA.get(caName)!;
-      newCASections.push(buildCATable(caName, rows));
+      // Use h3 as default heading level for new sections
+      newCASections.push(buildCATable(caName, rows, 3));
     }
 
     if (existingContent.trim()) {
+      // APPEND to existing content, preserving everything
       return existingContent.trim() + '\n\n' + newCASections.join('\n\n');
     }
     return newCASections.join('\n\n');
   }
 
-  // Merge with existing sections
+  // Headings found - merge new rows into existing sections
+  console.log('Headings found - merging with existing sections');
   const existingSections = new Map<string, CASection>();
   for (const section of sections) {
     existingSections.set(section.caName, section);
   }
 
+  // Determine the most common heading level to use for new sections
+  const headingLevels = sections.map(s => s.headingLevel);
+  const defaultHeadingLevel = headingLevels.length > 0
+    ? headingLevels.sort((a, b) =>
+        headingLevels.filter(l => l === b).length - headingLevels.filter(l => l === a).length
+      )[0]
+    : 3; // Default to h3 if no sections found
+
   for (const [ca, rows] of newRowsByCA.entries()) {
     if (existingSections.has(ca)) {
+      // CA already exists - add rows to it
       existingSections.get(ca)!.rows.push(...rows);
     } else {
+      // New CA - will be appended at end
       existingSections.set(ca, {
         caName: ca,
-        heading: `<h2>${escapeXml(ca)}</h2>`,
+        heading: `<h${defaultHeadingLevel}>${escapeXml(ca)}</h${defaultHeadingLevel}>`,
+        headingLevel: defaultHeadingLevel,
         rows: rows,
-        startIndex: -1,
+        startIndex: -1, // -1 means this is a new section to append
         endIndex: -1,
       });
     }
   }
 
-  // Rebuild
+  // Rebuild existing sections in place (preserving their positions)
   let result = existingContent;
   let offset = 0;
 
@@ -611,7 +649,8 @@ function addRowsWithoutMarkers(existingContent: string, newRows: TableRow[]): st
 
   for (const section of sortedSections) {
     const oldSectionLength = section.endIndex - section.startIndex;
-    const newSectionContent = buildCATable(section.caName, section.rows);
+    // Use the SAME heading level that was found in the original content
+    const newSectionContent = buildCATable(section.caName, section.rows, section.headingLevel);
 
     const beforeSection = result.slice(0, section.startIndex + offset);
     const afterSection = result.slice(section.endIndex + offset);
@@ -620,15 +659,17 @@ function addRowsWithoutMarkers(existingContent: string, newRows: TableRow[]): st
     offset += newSectionContent.length - oldSectionLength;
   }
 
-  // Append new sections
+  // Append new sections at the end
   const newSections = Array.from(existingSections.values())
     .filter(s => s.startIndex === -1)
     .sort((a, b) => a.caName.localeCompare(b.caName));
 
   if (newSections.length > 0) {
-    const newCASections = newSections.map(s => buildCATable(s.caName, s.rows));
+    console.log(`Appending ${newSections.length} new CA sections at end`);
+    const newCASections = newSections.map(s => buildCATable(s.caName, s.rows, s.headingLevel));
     result = result.trim() + '\n\n' + newCASections.join('\n\n');
   }
 
+  console.log('=== addRowsWithoutMarkers complete ===');
   return result;
 }
