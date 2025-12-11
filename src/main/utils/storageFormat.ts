@@ -369,7 +369,7 @@ ${rowsHtml}
  * 2. Adds new rows to the appropriate CA sections
  * 3. Creates new CA sections if needed
  * 4. Sorts rows by date within each CA section
- * 5. Rebuilds the page content
+ * 5. Rebuilds the page content while preserving non-CA content
  */
 export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow[]): string {
   // Parse existing CA sections
@@ -402,25 +402,33 @@ export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow
     }
   }
 
-  // Build the new page content
-  const newContent: string[] = [];
+  // Build the new CA sections content
+  const caSectionsContent: string[] = [];
 
   // Sort CA names alphabetically
   const sortedCANames = Array.from(updatedSections.keys()).sort();
 
   for (const caName of sortedCANames) {
     const rows = updatedSections.get(caName)!;
-    newContent.push(buildCATable(caName, rows));
-    newContent.push(''); // Add blank line between sections
+    caSectionsContent.push(buildCATable(caName, rows));
   }
 
-  // If there was content before the first section, preserve it
-  if (sections.length > 0 && sections[0].startIndex > 0) {
-    const preContent = existingContent.slice(0, sections[0].startIndex).trim();
-    if (preContent) {
-      return preContent + '\n\n' + newContent.join('\n');
+  const newCASections = caSectionsContent.join('\n\n');
+
+  // If no existing CA sections, append to the end of the page
+  if (sections.length === 0) {
+    if (existingContent.trim()) {
+      return existingContent.trim() + '\n\n' + newCASections;
     }
+    return newCASections;
   }
 
-  return newContent.join('\n');
+  // Preserve content before, between, and after CA sections
+  const firstSection = sections[0];
+  const lastSection = sections[sections.length - 1];
+
+  const contentBefore = existingContent.slice(0, firstSection.startIndex);
+  const contentAfter = existingContent.slice(lastSection.endIndex);
+
+  return contentBefore + newCASections + '\n\n' + contentAfter;
 }
