@@ -117,10 +117,40 @@ const CertificateForm: React.FC<CertificateFormProps> = ({
   const handleCopyEntry = async () => {
     const rowHtml = buildTableRowHtml();
 
+    // Build tab-separated plain text version
+    const sansText = certificate.sans.join(', ') || '';
+    const plainText = [
+      formatDateISO(certificate.expirationDate),
+      certificate.cn,
+      sansText,
+      certificate.issuingCA,
+      requestor || '',
+      location || '',
+      distributionGroup || '',
+      notes || '',
+    ].join('\t');
+
+    // Build complete HTML table (needed for proper pasting into Confluence)
+    const fullTableHtml = `<table>
+<tbody>
+<tr>
+<th>Expiration</th>
+<th>Common Name</th>
+<th>SANs</th>
+<th>Issuing CA</th>
+<th>Requestor</th>
+<th>Location</th>
+<th>Distribution Group</th>
+<th>Notes</th>
+</tr>
+${rowHtml}
+</tbody>
+</table>`;
+
     try {
-      // Copy as rich HTML so it can be pasted as a rendered table
-      const htmlBlob = new Blob([rowHtml], { type: 'text/html' });
-      const textBlob = new Blob([rowHtml], { type: 'text/plain' });
+      // Copy as both rich HTML (full table) and plain text (tab-separated)
+      const htmlBlob = new Blob([fullTableHtml], { type: 'text/html' });
+      const textBlob = new Blob([plainText], { type: 'text/plain' });
 
       const clipboardItem = new ClipboardItem({
         'text/html': htmlBlob,
@@ -128,7 +158,7 @@ const CertificateForm: React.FC<CertificateFormProps> = ({
       });
 
       await navigator.clipboard.write([clipboardItem]);
-      console.log('Entry copied to clipboard as HTML');
+      console.log('Entry copied to clipboard as HTML table');
     } catch (err) {
       console.error('Failed to copy entry:', err);
       alert('Failed to copy entry to clipboard');
