@@ -363,26 +363,195 @@ ${rowsHtml}
 }
 
 /**
- * Add rows to page content with CA grouping and date sorting
+ * Map issuing CA names to HTML comment marker sections
+ */
+function getMarkerSectionForCA(issuingCA: string): string | null {
+  const caLower = issuingCA.toLowerCase();
+
+  // Sectigo certificates
+  if (caLower.includes('sectigo')) {
+    return 'SECTIGO';
+  }
+
+  // TiVo/PKI certificates
+  if (caLower.includes('tivo') || caLower.includes('pki.tivo.com')) {
+    return 'PKI-TIVO-COM';
+  }
+
+  // Third party certificates
+  if (caLower.includes('digicert') || caLower.includes('comodo') ||
+      caLower.includes('godaddy') || caLower.includes('letsencrypt')) {
+    return 'THIRD-PARTY';
+  }
+
+  // SDV certificates
+  if (caLower.includes('sdv')) {
+    return 'SDV';
+  }
+
+  // Default to LEGACY for unknown CAs
+  return 'LEGACY';
+}
+
+interface MarkerSection {
+  markerName: string;
+  startMarker: string;
+  endMarker: string;
+  startIndex: number;
+  endIndex: number;
+  contentStartIndex: number;
+  contentEndIndex: number;
+}
+
+/**
+ * Find all HTML comment marker sections in the page
+ */
+function findMarkerSections(content: string): MarkerSection[] {
+  const sections: MarkerSection[] = [];
+
+  // Look for comment markers in format: <!-- NAME-START --> ... <!-- NAME-END -->
+  const markerPattern = /<!--\s*([A-Z0-9-]+)-START\s*-->/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = markerPattern.exec(content)) !== null) {
+    const markerName = match[1];
+    const startMarker = match[0];
+    const endMarker = `<!-- ${markerName}-END -->`;
+    const startIndex = match.index;
+    const contentStartIndex = startIndex + startMarker.length;
+
+    // Find the corresponding end marker
+    const endIndex = content.indexOf(endMarker, contentStartIndex);
+    if (endIndex === -1) {
+      console.warn(`No end marker found for ${markerName}`);
+      continue;
+    }
+
+    sections.push({
+      markerName,
+      startMarker,
+      endMarker,
+      startIndex,
+      endIndex: endIndex + endMarker.length,
+      contentStartIndex,
+      contentEndIndex: endIndex,
+    });
+  }
+
+  return sections;
+}
+
+/**
+ * Add rows to page content with HTML marker section awareness
  * This function:
- * 1. Parses existing CA sections
- * 2. Adds new rows to the appropriate CA sections
- * 3. Creates new CA sections if needed
- * 4. Sorts rows by date within each CA section
- * 5. Rebuilds ONLY the CA sections, preserving all other content
+ * 1. Detects HTML comment markers (e.g., <!-- SECTIGO-START -->)
+ * 2. Maps certificates to appropriate marker sections
+ * 3. Within each section, organizes by Issuing CA with h2 headings
+ * 4. Sorts rows by date within each CA
+ * 5. Preserves ALL other page content
  */
 export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow[]): string {
   console.log('=== addRowsWithCAGrouping called ===');
   console.log('Existing content length:', existingContent.length);
   console.log('New rows to add:', newRows.length);
 
-  // Parse existing CA sections
-  const sections = parseCASection(existingContent);
-  console.log('Parsed CA sections:', sections.length);
-  sections.forEach((s, i) => {
-    console.log(`  Section ${i}: ${s.caName} (rows: ${s.rows.length}, pos: ${s.startIndex}-${s.endIndex})`);
-  });
+  // Find HTML marker sections
+  const markerSections = findMarkerSections(existingContent);
+  console.log('Found marker sections:', markerSections.map(s => s.markerName).join(', '));
 
+  if (markerSections.length === 0) {
+    // No markers found - fall back to old behavior (append CA sections at end)
+    console.log('No marker sections found - using fallback behavior');
+    return addRowsWithoutMarkers(existingContent, newRows);
+  }
+
+  // Group new rows by marker section
+  const rowsByMarkerSection = new Map<string, TableRow[]>();
+  for (const row of newRows) {
+    const markerName = getMarkerSectionForCA(row.issuingCA);
+    if (!markerName) {
+      console.warn(`Could not determine marker section for CA: ${row.issuingCA}`);
+      continue;
+    }
+
+    if (!rowsByMarkerSection.has(markerName)) {
+      rowsByMarkerSection.set(markerName, []);
+    }
+    rowsByMarkerSection.get(markerName)!.push(row);
+  }
+
+  console.log('Rows grouped by marker section:', Array.from(rowsByMarkerSection.keys()).join(', '));
+
+  // Process each marker section that has new rows
+  let result = existingContent;
+  let offset = 0;
+
+  // Process sections in order of appearance
+  for (const markerSection of markerSections) {
+    const newRowsForSection = rowsByMarkerSection.get(markerSection.markerName);
+    if (!newRowsForSection || newRowsForSection.length === 0) {
+      continue; // No new rows for this section
+    }
+
+    console.log(`Processing section ${markerSection.markerName} with ${newRowsForSection.length} new rows`);
+
+    // Extract current content within this marker section
+    const sectionContent = result.slice(
+      markerSection.contentStartIndex + offset,
+      markerSection.contentEndIndex + offset
+    );
+
+    // Parse existing CA subsections within this marker section
+    const caSections = parseCASection(sectionContent);
+    console.log(`  Found ${caSections.length} existing CA subsections`);
+
+    // Group existing rows by CA
+    const rowsByCA = new Map<string, TableRow[]>();
+    for (const caSection of caSections) {
+      rowsByCA.set(caSection.caName, [...caSection.rows]);
+    }
+
+    // Add new rows to appropriate CAs
+    for (const row of newRowsForSection) {
+      const ca = row.issuingCA;
+      if (!rowsByCA.has(ca)) {
+        rowsByCA.set(ca, []);
+      }
+      rowsByCA.get(ca)!.push(row);
+    }
+
+    // Build new content for this marker section
+    const sortedCAs = Array.from(rowsByCA.keys()).sort();
+    const caTablesHtml = sortedCAs
+      .map(ca => buildCATable(ca, rowsByCA.get(ca)!))
+      .join('\n\n');
+
+    const newSectionContent = `\n${caTablesHtml}\n`;
+
+    // Calculate the old section content length
+    const oldSectionLength = markerSection.contentEndIndex - markerSection.contentStartIndex;
+
+    // Replace the content within the markers
+    const before = result.slice(0, markerSection.contentStartIndex + offset);
+    const after = result.slice(markerSection.contentEndIndex + offset);
+
+    result = before + newSectionContent + after;
+
+    // Update offset for subsequent sections
+    offset += newSectionContent.length - oldSectionLength;
+    console.log(`  Updated ${markerSection.markerName}: length change = ${newSectionContent.length - oldSectionLength}`);
+  }
+
+  console.log('Final result length:', result.length);
+  console.log('=== addRowsWithCAGrouping complete ===');
+  return result;
+}
+
+/**
+ * Fallback function for pages without HTML markers
+ * Appends CA sections at the end of the page
+ */
+function addRowsWithoutMarkers(existingContent: string, newRows: TableRow[]): string {
   // Group new rows by CA
   const newRowsByCA = new Map<string, TableRow[]>();
   for (const row of newRows) {
@@ -393,9 +562,11 @@ export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow
     newRowsByCA.get(ca)!.push(row);
   }
 
-  // If no existing CA sections, append to the end of the page
+  // Parse existing CA sections (if any)
+  const sections = parseCASection(existingContent);
+
   if (sections.length === 0) {
-    console.log('No existing CA sections found - appending to end');
+    // No existing sections - create new ones at end
     const newCASections: string[] = [];
     const sortedCANames = Array.from(newRowsByCA.keys()).sort();
 
@@ -410,73 +581,54 @@ export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow
     return newCASections.join('\n\n');
   }
 
-  // Build a map of existing CA sections by name
+  // Merge with existing sections
   const existingSections = new Map<string, CASection>();
   for (const section of sections) {
     existingSections.set(section.caName, section);
   }
 
-  // Update existing sections with new rows
   for (const [ca, rows] of newRowsByCA.entries()) {
     if (existingSections.has(ca)) {
-      // Add to existing section
-      const section = existingSections.get(ca)!;
-      section.rows.push(...rows);
+      existingSections.get(ca)!.rows.push(...rows);
     } else {
-      // Create new section (will be appended at the end)
       existingSections.set(ca, {
         caName: ca,
         heading: `<h2>${escapeXml(ca)}</h2>`,
         rows: rows,
-        startIndex: -1, // Mark as new
+        startIndex: -1,
         endIndex: -1,
       });
     }
   }
 
-  // Rebuild the page by replacing each CA section in place
+  // Rebuild
   let result = existingContent;
   let offset = 0;
 
-  // Sort sections by their position in the original content
   const sortedSections = Array.from(existingSections.values())
-    .filter(s => s.startIndex >= 0) // Only existing sections (not new ones)
+    .filter(s => s.startIndex >= 0)
     .sort((a, b) => a.startIndex - b.startIndex);
 
-  console.log('Replacing', sortedSections.length, 'existing CA sections in place');
-
-  // Replace each existing section with its updated version
   for (const section of sortedSections) {
     const oldSectionLength = section.endIndex - section.startIndex;
     const newSectionContent = buildCATable(section.caName, section.rows);
 
-    console.log(`  Replacing ${section.caName}: old=${oldSectionLength} chars, new=${newSectionContent.length} chars`);
-    console.log(`    Position: ${section.startIndex + offset} to ${section.endIndex + offset}`);
-
     const beforeSection = result.slice(0, section.startIndex + offset);
     const afterSection = result.slice(section.endIndex + offset);
 
-    console.log(`    Before length: ${beforeSection.length}, After length: ${afterSection.length}`);
-
     result = beforeSection + newSectionContent + afterSection;
-
-    // Update offset for subsequent replacements
     offset += newSectionContent.length - oldSectionLength;
-    console.log(`    New offset: ${offset}`);
   }
 
-  // Append any new CA sections at the end
+  // Append new sections
   const newSections = Array.from(existingSections.values())
     .filter(s => s.startIndex === -1)
     .sort((a, b) => a.caName.localeCompare(b.caName));
 
   if (newSections.length > 0) {
-    console.log('Appending', newSections.length, 'new CA sections at end');
     const newCASections = newSections.map(s => buildCATable(s.caName, s.rows));
     result = result.trim() + '\n\n' + newCASections.join('\n\n');
   }
 
-  console.log('Final result length:', result.length);
-  console.log('=== addRowsWithCAGrouping complete ===');
   return result;
 }
