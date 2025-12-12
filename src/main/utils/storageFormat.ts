@@ -417,22 +417,34 @@ interface MarkerSection {
 function findMarkerSections(content: string): MarkerSection[] {
   const sections: MarkerSection[] = [];
 
-  // Look for comment markers in format: <!-- NAME-START --> or <!-- <p>NAME-START</p> -->
-  // Confluence may wrap the comment content in <p> tags when using the htmlcomment macro
-  const markerPattern = /<!--\s*(?:<p>)?\s*([A-Z0-9-]+)-START\s*(?:<\/p>)?\s*-->/gi;
+  // Look for Confluence htmlcomment macro format:
+  // <span class="conf-macro output-inline" data-hasbody="true" data-macro-name="htmlcomment"><!-- <p>NAME-START</p> --></span>
+  // Also support plain HTML comments for compatibility: <!-- NAME-START -->
+  const spanMarkerPattern = /<span[^>]*data-macro-name="htmlcomment"[^>]*><!--\s*(?:<p>)?\s*([A-Z0-9-]+)-START\s*(?:<\/p>)?\s*--><\/span>/gi;
+  const plainMarkerPattern = /<!--\s*(?:<p>)?\s*([A-Z0-9-]+)-START\s*(?:<\/p>)?\s*-->/gi;
+
   let match: RegExpExecArray | null;
 
-  while ((match = markerPattern.exec(content)) !== null) {
+  // First try to find span-wrapped markers (Confluence Server/DC format)
+  while ((match = spanMarkerPattern.exec(content)) !== null) {
     const markerName = match[1];
     const startMarker = match[0];
-    // Try both formats for the end marker
-    let endMarker = `<!-- ${markerName}-END -->`;
-    let endIndex = content.indexOf(endMarker, match.index + startMarker.length);
 
-    // If not found, try with <p> tags
-    if (endIndex === -1) {
-      endMarker = `<!-- <p>${markerName}-END</p> -->`;
-      endIndex = content.indexOf(endMarker, match.index + startMarker.length);
+    // Build end marker patterns to search for
+    const endMarkerPatterns = [
+      `<span class="conf-macro output-inline" data-hasbody="true" data-macro-name="htmlcomment"><!-- <p>${markerName}-END</p> --></span>`,
+      `<span class="conf-macro output-inline" data-hasbody="true" data-macro-name="htmlcomment"><!-- ${markerName}-END --></span>`,
+    ];
+
+    let endIndex = -1;
+    let endMarker = '';
+
+    for (const pattern of endMarkerPatterns) {
+      endIndex = content.indexOf(pattern, match.index + startMarker.length);
+      if (endIndex !== -1) {
+        endMarker = pattern;
+        break;
+      }
     }
 
     const contentStartIndex = match.index + startMarker.length;
@@ -451,6 +463,41 @@ function findMarkerSections(content: string): MarkerSection[] {
       contentStartIndex,
       contentEndIndex: endIndex,
     });
+  }
+
+  // If no span-wrapped markers found, try plain HTML comment markers
+  if (sections.length === 0) {
+    while ((match = plainMarkerPattern.exec(content)) !== null) {
+      const markerName = match[1];
+      const startMarker = match[0];
+
+      // Try both formats for the end marker
+      let endMarker = `<!-- ${markerName}-END -->`;
+      let endIndex = content.indexOf(endMarker, match.index + startMarker.length);
+
+      // If not found, try with <p> tags
+      if (endIndex === -1) {
+        endMarker = `<!-- <p>${markerName}-END</p> -->`;
+        endIndex = content.indexOf(endMarker, match.index + startMarker.length);
+      }
+
+      const contentStartIndex = match.index + startMarker.length;
+
+      if (endIndex === -1) {
+        console.warn(`No end marker found for ${markerName}`);
+        continue;
+      }
+
+      sections.push({
+        markerName,
+        startMarker,
+        endMarker,
+        startIndex: match.index,
+        endIndex: endIndex + endMarker.length,
+        contentStartIndex,
+        contentEndIndex: endIndex,
+      });
+    }
   }
 
   return sections;
