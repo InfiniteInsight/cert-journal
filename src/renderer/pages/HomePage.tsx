@@ -160,7 +160,13 @@ const HomePage: React.FC = () => {
 
     try {
       const targetPage = getMonthPageForDate(new Date(entry.expirationDate));
-      const expirationStr = new Date(entry.expirationDate).toISOString().split('T')[0];
+
+      // Format date as MM/DD/YYYY
+      const date = new Date(entry.expirationDate);
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const year = date.getFullYear();
+      const expirationStr = `${month}/${day}/${year}`;
 
       const row: TableRow = {
         expiration: expirationStr,
