@@ -417,42 +417,32 @@ interface MarkerSection {
 function findMarkerSections(content: string): MarkerSection[] {
   const sections: MarkerSection[] = [];
 
-  // Look for Confluence htmlcomment macro format:
-  // <span class="conf-macro output-inline" data-hasbody="true" data-macro-name="htmlcomment"><!-- <p>NAME-START</p> --></span>
-  // Also support plain HTML comments for compatibility: <!-- NAME-START -->
-  const spanMarkerPattern = /<span[^>]*data-macro-name="htmlcomment"[^>]*><!--\s*(?:<p>)?\s*([A-Z0-9-]+)-START\s*(?:<\/p>)?\s*--><\/span>/gi;
-  const plainMarkerPattern = /<!--\s*(?:<p>)?\s*([A-Z0-9-]+)-START\s*(?:<\/p>)?\s*-->/gi;
+  // Look for Confluence storage format structured macro:
+  // <ac:structured-macro ac:name="htmlcomment"...><ac:rich-text-body><p>NAME-START</p></ac:rich-text-body></ac:structured-macro>
+  const macroMarkerPattern = /<ac:structured-macro\s+ac:name="htmlcomment"[^>]*>[\s\S]*?<ac:rich-text-body>\s*<p>\s*([A-Z0-9-]+)-START\s*<\/p>\s*<\/ac:rich-text-body>\s*<\/ac:structured-macro>/gi;
 
   let match: RegExpExecArray | null;
 
-  // First try to find span-wrapped markers (Confluence Server/DC format)
-  while ((match = spanMarkerPattern.exec(content)) !== null) {
+  // Search for structured macro markers (Confluence storage format)
+  while ((match = macroMarkerPattern.exec(content)) !== null) {
     const markerName = match[1];
     const startMarker = match[0];
 
-    // Build end marker patterns to search for
-    const endMarkerPatterns = [
-      `<span class="conf-macro output-inline" data-hasbody="true" data-macro-name="htmlcomment"><!-- <p>${markerName}-END</p> --></span>`,
-      `<span class="conf-macro output-inline" data-hasbody="true" data-macro-name="htmlcomment"><!-- ${markerName}-END --></span>`,
-    ];
+    // Build end marker pattern - same structured macro format with END
+    const endMarkerPattern = `<ac:structured-macro\\s+ac:name="htmlcomment"[^>]*>[\\s\\S]*?<ac:rich-text-body>\\s*<p>\\s*${markerName}-END\\s*</p>\\s*</ac:rich-text-body>\\s*</ac:structured-macro>`;
+    const endMarkerRegex = new RegExp(endMarkerPattern, 'i');
 
-    let endIndex = -1;
-    let endMarker = '';
+    const contentAfterStart = content.substring(match.index + startMarker.length);
+    const endMatch = endMarkerRegex.exec(contentAfterStart);
 
-    for (const pattern of endMarkerPatterns) {
-      endIndex = content.indexOf(pattern, match.index + startMarker.length);
-      if (endIndex !== -1) {
-        endMarker = pattern;
-        break;
-      }
-    }
-
-    const contentStartIndex = match.index + startMarker.length;
-
-    if (endIndex === -1) {
+    if (!endMatch) {
       console.warn(`No end marker found for ${markerName}`);
       continue;
     }
+
+    const endMarker = endMatch[0];
+    const endIndex = match.index + startMarker.length + endMatch.index;
+    const contentStartIndex = match.index + startMarker.length;
 
     sections.push({
       markerName,
@@ -463,41 +453,8 @@ function findMarkerSections(content: string): MarkerSection[] {
       contentStartIndex,
       contentEndIndex: endIndex,
     });
-  }
 
-  // If no span-wrapped markers found, try plain HTML comment markers
-  if (sections.length === 0) {
-    while ((match = plainMarkerPattern.exec(content)) !== null) {
-      const markerName = match[1];
-      const startMarker = match[0];
-
-      // Try both formats for the end marker
-      let endMarker = `<!-- ${markerName}-END -->`;
-      let endIndex = content.indexOf(endMarker, match.index + startMarker.length);
-
-      // If not found, try with <p> tags
-      if (endIndex === -1) {
-        endMarker = `<!-- <p>${markerName}-END</p> -->`;
-        endIndex = content.indexOf(endMarker, match.index + startMarker.length);
-      }
-
-      const contentStartIndex = match.index + startMarker.length;
-
-      if (endIndex === -1) {
-        console.warn(`No end marker found for ${markerName}`);
-        continue;
-      }
-
-      sections.push({
-        markerName,
-        startMarker,
-        endMarker,
-        startIndex: match.index,
-        endIndex: endIndex + endMarker.length,
-        contentStartIndex,
-        contentEndIndex: endIndex,
-      });
-    }
+    console.log(`Found marker section: ${markerName} from ${match.index} to ${endIndex + endMarker.length}`);
   }
 
   return sections;
