@@ -81,7 +81,12 @@ const CertificateForm: React.FC<CertificateFormProps> = ({
   };
 
   const formatDateISO = (date: Date) => {
-    return new Date(date).toISOString().split('T')[0];
+    // Format as MM/DD/YYYY
+    const d = new Date(date);
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${month}/${day}/${year}`;
   };
 
   const escapeXml = (text: string): string => {
