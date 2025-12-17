@@ -46,14 +46,14 @@ export function buildTableRow(row: TableRow): string {
       : '';
 
   return `<tr>
-<td>${escapeXml(row.expiration)}</td>
-<td>${escapeXml(row.cn)}</td>
-<td>${sansList}</td>
-<td>${escapeXml(row.issuingCA)}</td>
-<td>${escapeXml(row.requestor)}</td>
-<td>${escapeXml(row.location)}</td>
-<td>${escapeXml(row.distributionGroup)}</td>
-<td>${escapeXml(row.notes)}</td>
+<td style="min-width: 90px;">${escapeXml(row.expiration)}</td>
+<td style="min-width: 200px; max-width: 300px; word-wrap: break-word;">${escapeXml(row.cn)}</td>
+<td style="min-width: 250px; max-width: 350px; word-wrap: break-word;">${sansList}</td>
+<td style="min-width: 150px; max-width: 200px; word-wrap: break-word;">${escapeXml(row.issuingCA)}</td>
+<td style="min-width: 120px; max-width: 180px; word-wrap: break-word;">${escapeXml(row.requestor)}</td>
+<td style="min-width: 120px; max-width: 180px; word-wrap: break-word;">${escapeXml(row.location)}</td>
+<td style="min-width: 150px; max-width: 200px; word-wrap: break-word;">${escapeXml(row.distributionGroup)}</td>
+<td style="min-width: 200px; max-width: 300px; word-wrap: break-word;">${escapeXml(row.notes)}</td>
 </tr>`;
 }
 
@@ -61,17 +61,17 @@ export function buildTableRow(row: TableRow): string {
  * Build an empty table with headers only
  */
 export function buildEmptyTable(): string {
-  return `<table>
+  return `<table style="width: 100%; table-layout: auto;">
 <tbody>
 <tr>
-<th>Expiration</th>
-<th>CN</th>
-<th>SANs</th>
-<th>Issuing CA</th>
-<th>Requestor</th>
-<th>Location</th>
-<th>Distribution Group</th>
-<th>Notes</th>
+<th style="min-width: 90px;">Expiration</th>
+<th style="min-width: 200px; max-width: 300px;">CN</th>
+<th style="min-width: 250px; max-width: 350px;">SANs</th>
+<th style="min-width: 150px; max-width: 200px;">Issuing CA</th>
+<th style="min-width: 120px; max-width: 180px;">Requestor</th>
+<th style="min-width: 120px; max-width: 180px;">Location</th>
+<th style="min-width: 150px; max-width: 200px;">Distribution Group</th>
+<th style="min-width: 200px; max-width: 300px;">Notes</th>
 </tr>
 </tbody>
 </table>`;
@@ -354,17 +354,17 @@ export function buildCATable(caName: string, rows: TableRow[], headingLevel: num
   const rowsHtml = sortedRows.map((row) => buildTableRow(row)).join('\n');
 
   return `<h${headingLevel}>${escapeXml(caName)}</h${headingLevel}>
-<table>
+<table style="width: 100%; table-layout: auto;">
 <tbody>
 <tr>
-<th>Expiration</th>
-<th>CN</th>
-<th>SANs</th>
-<th>Issuing CA</th>
-<th>Requestor</th>
-<th>Location</th>
-<th>Distribution Group</th>
-<th>Notes</th>
+<th style="min-width: 90px;">Expiration</th>
+<th style="min-width: 200px; max-width: 300px;">CN</th>
+<th style="min-width: 250px; max-width: 350px;">SANs</th>
+<th style="min-width: 150px; max-width: 200px;">Issuing CA</th>
+<th style="min-width: 120px; max-width: 180px;">Requestor</th>
+<th style="min-width: 120px; max-width: 180px;">Location</th>
+<th style="min-width: 150px; max-width: 200px;">Distribution Group</th>
+<th style="min-width: 200px; max-width: 300px;">Notes</th>
 </tr>
 ${rowsHtml}
 </tbody>
