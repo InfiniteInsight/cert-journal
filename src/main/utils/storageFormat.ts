@@ -120,12 +120,13 @@ export function appendRowToTable(existingContent: string, row: TableRow): string
 
 /**
  * Format a date for display in the table
+ * Uses MM/DD/YYYY format per user requirement
  */
 export function formatExpirationDate(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return `${month}/${day}/${year}`;
 }
 
 /**
@@ -514,81 +515,54 @@ export function addRowsWithCAGrouping(existingContent: string, newRows: TableRow
 
     console.log(`Processing section ${markerSection.markerName} with ${newRowsForSection.length} new rows`);
 
+    // CRITICAL SAFETY: APPEND-ONLY approach
+    // We DO NOT parse existing rows, DO NOT rebuild the table, DO NOT replace content
+    // We ONLY find the closing </tbody> tag and insert new rows before it
+
     // Extract current content within this marker section
-    const sectionContent = result.slice(
-      markerSection.contentStartIndex + offset,
-      markerSection.contentEndIndex + offset
-    );
+    const sectionStartIdx = markerSection.contentStartIndex + offset;
+    const sectionEndIdx = markerSection.contentEndIndex + offset;
+    const sectionContent = result.slice(sectionStartIdx, sectionEndIdx);
 
-    // Within each marker section, there should be ONE heading and ONE table
-    // The heading is a category name (e.g., "Public Server Certificates - Sectigo")
-    // The table contains ALL certificates for that category
+    // Find the table in this section
+    const tablePattern = /<table[\s\S]*?<\/table>/i;
+    const tableMatch = sectionContent.match(tablePattern);
 
-    // Find the heading (h1-h6)
-    const headingPattern = /<(h[1-6])[^>]*>([\s\S]*?)<\/\1>/i;
-    const headingMatch = sectionContent.match(headingPattern);
-
-    let existingHeading = '';
-    let existingRows: TableRow[] = [];
-
-    if (headingMatch) {
-      existingHeading = headingMatch[0]; // Preserve the exact heading HTML
-      console.log(`  Found existing heading: ${headingMatch[2].trim()}`);
+    if (!tableMatch) {
+      console.warn(`  No table found in ${markerSection.markerName} section - skipping`);
+      continue;
     }
 
-    // Find the table
-    const tableMatch = sectionContent.match(/<table[\s\S]*?<\/table>/i);
-    if (tableMatch) {
-      const tableContent = tableMatch[0];
+    const tableHtml = tableMatch[0];
+    const tableStartInSection = sectionContent.indexOf(tableHtml);
 
-      // Parse all existing rows from the table
-      const rowPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-      let rowMatch: RegExpExecArray | null;
+    // Find the closing </tbody> tag to insert before it
+    const tbodyClosePattern = /<\/tbody>/i;
+    const tbodyCloseIdx = tableHtml.lastIndexOf('</tbody>');
 
-      while ((rowMatch = rowPattern.exec(tableContent)) !== null) {
-        const rowHtml = rowMatch[0];
-
-        // Skip header row (contains <th> tags)
-        if (/<th[^>]*>/i.test(rowHtml)) {
-          continue;
-        }
-
-        const parsedRow = parseTableRow(rowHtml);
-        if (parsedRow) {
-          existingRows.push(parsedRow);
-        }
-      }
-
-      console.log(`  Found ${existingRows.length} existing rows in table`);
+    if (tbodyCloseIdx === -1) {
+      console.warn(`  No </tbody> tag found in ${markerSection.markerName} table - skipping`);
+      continue;
     }
 
-    // Combine existing rows with new rows
-    const allRows = [...existingRows, ...newRowsForSection];
-    console.log(`  Total rows after adding new: ${allRows.length}`);
+    // Build the new row HTML (rows will be appended, not sorted with existing)
+    const newRowsHtml = newRowsForSection.map(row => buildTableRow(row)).join('\n');
 
-    // Sort all rows by expiration date
-    const sortedRows = sortRowsByDate(allRows);
+    // Calculate where to insert in the full result string
+    const tableStartInResult = sectionStartIdx + tableStartInSection;
+    const insertPosition = tableStartInResult + tbodyCloseIdx;
 
-    // Build the table with all rows
-    const rowsHtml = sortedRows.map(row => buildTableRow(row)).join('\n');
+    // APPEND new rows before </tbody> - DO NOT modify any existing content
+    const before = result.slice(0, insertPosition);
+    const after = result.slice(insertPosition);
 
-    // Build new section content with the original heading and updated table
-    const newSectionContent = existingHeading
-      ? `\n${existingHeading}\n<table>\n<tbody>\n<tr>\n<th>Expiration</th>\n<th>CN</th>\n<th>SANs</th>\n<th>Issuing CA</th>\n<th>Requestor</th>\n<th>Location</th>\n<th>Distribution Group</th>\n<th>Notes</th>\n</tr>\n${rowsHtml}\n</tbody>\n</table>\n`
-      : `\n<table>\n<tbody>\n<tr>\n<th>Expiration</th>\n<th>CN</th>\n<th>SANs</th>\n<th>Issuing CA</th>\n<th>Requestor</th>\n<th>Location</th>\n<th>Distribution Group</th>\n<th>Notes</th>\n</tr>\n${rowsHtml}\n</tbody>\n</table>\n`;
-
-    // Calculate the old section content length
-    const oldSectionLength = markerSection.contentEndIndex - markerSection.contentStartIndex;
-
-    // Replace the content within the markers
-    const before = result.slice(0, markerSection.contentStartIndex + offset);
-    const after = result.slice(markerSection.contentEndIndex + offset);
-
-    result = before + newSectionContent + after;
+    result = before + newRowsHtml + '\n' + after;
 
     // Update offset for subsequent sections
-    offset += newSectionContent.length - oldSectionLength;
-    console.log(`  Updated ${markerSection.markerName}: length change = ${newSectionContent.length - oldSectionLength}`);
+    const insertedLength = newRowsHtml.length + 1; // +1 for the newline
+    offset += insertedLength;
+
+    console.log(`  Appended ${newRowsForSection.length} rows to ${markerSection.markerName} table (inserted ${insertedLength} characters)`);
   }
 
   console.log('Final result length:', result.length);
