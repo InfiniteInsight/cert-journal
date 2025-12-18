@@ -14,11 +14,12 @@ import { rendererConfig } from './webpack.renderer.config';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: {
-      unpack: '**/*.{node,dll,so,dylib}',
+      unpack: '**/node_modules/{better-sqlite3,keytar}/**/*',
     },
   },
   rebuildConfig: {
     onlyModules: ['better-sqlite3', 'keytar'],
+    force: true,
   },
   makers: [
     new MakerSquirrel({}),
