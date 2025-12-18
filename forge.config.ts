@@ -17,7 +17,9 @@ const config: ForgeConfig = {
       unpack: '**/*.{node,dll,so,dylib}',
     },
   },
-  rebuildConfig: {},
+  rebuildConfig: {
+    onlyModules: ['better-sqlite3', 'keytar'],
+  },
   makers: [
     new MakerSquirrel({}),
     new MakerZIP({}, ['darwin']),
